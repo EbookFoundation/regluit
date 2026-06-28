@@ -78,7 +78,7 @@
     "gulp-zip": "^3.2.0",
     "inquirer": "^2.0.0",
     "is-empty-object": "^1.1.1",
-    "js-yaml": "^3.8.4",
+    "js-yaml": "^4.2.0",
     "mocha": "^3.4.2",
     "mocha-phantomjs": "^4.0.2",
     "motion-ui": "^1.1.0",
