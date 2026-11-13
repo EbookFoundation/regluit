@@ -68,6 +68,40 @@ class TestLibraryAuth(TestCase):
         with self.assertRaises(User.DoesNotExist):
             User.objects.get(username='badbob')
 
+    def _register(self, username, email):
+        return self.client.post(reverse('registration_register'),
+                                data={'username': username,
+                                      'email': email,
+                                      'password1': 'secret',
+                                      'password2': 'secret',
+                                      'notarobot': '11',
+                                      'tries': encode_answer(11),
+                                      })
+
+    def test_four_byte_characters_get_a_form_error_not_a_500(self):
+        # auth_user is utf8mb3 on MySQL, so these used to raise error 1267 in the
+        # uniqueness lookups. U+1D400 is a decorative letter that \w accepts.
+        for username, email in [('\U0001D400lice', 'alice@example.com'),
+                                ('alice4', 'a\U0001F600@example.com'),
+                                ('alice5', 'alice@\U0001D400example.com')]:
+            resp = self._register(username, email)
+            self.assertEqual(200, resp.status_code, (username, email))
+            self.assertIn("decorative letters", str(resp.content, 'utf-8'))
+            self.assertFalse(User.objects.filter(email__startswith='alice').exists())
+
+    def test_change_username_form_with_four_byte_name_is_a_form_error(self):
+        # /accounts/edit/ uses the same username field.
+        form = UserNamePass(data={'username': '\U0001D400lice'})
+        self.assertFalse(form.is_valid())
+        self.assertIn("decorative letters", str(form.errors['username']))
+
+    def test_accented_and_cjk_usernames_still_register(self):
+        for username, email in [('josé', 'jose@example.com'),
+                                ('李明', 'liming@example.com')]:
+            resp = self._register(username, email)
+            self.assertRedirects(resp, reverse('django_registration_complete'))
+            self.assertTrue(User.objects.filter(username=username).exists())
+
     def test_is_disposable(self):
         from .emailcheck import is_disposable
         self.assertFalse(is_disposable('eric@hellman.net'))
