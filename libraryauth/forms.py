@@ -40,8 +40,32 @@ def encode_answer(answer):
     return salted_hmac('regluit.libraryauth.notarobot', str(answer), algorithm='sha256').hexdigest()
 
 
+class NoFourByteMixin:
+    """ Refuse characters outside the Basic Multilingual Plane (emoji, decorative
+    letters such as U+1D400). The auth_user columns are utf8mb3, which can't hold
+    them, so a lookup like username__iexact raises MySQL error 1267 (a 500) instead
+    of a form error. Checked in validate(), which runs before the field's validators,
+    because django-registration's unique-email validator queries the database and
+    Django runs every validator even after one fails. (Password reset needs no guard:
+    Django's EmailValidator rejects these before its lookup runs.)
+    """
+    def validate(self, value):
+        super().validate(value)
+        if value and any(ord(c) > 0xFFFF for c in value):
+            raise forms.ValidationError(
+                _("Please remove emoji and decorative letters; they can't be stored here."),
+                code='four_byte',
+            )
+
+class NoFourByteRegexField(NoFourByteMixin, forms.RegexField):
+    pass
+
+class NoFourByteEmailField(NoFourByteMixin, forms.EmailField):
+    pass
+
+
 class UserData(forms.Form):
-    username = forms.RegexField(
+    username = NoFourByteRegexField(
         label=_("New Username"),
         max_length=30,
         regex=r'^[\w.@+-]+$',
@@ -100,6 +124,9 @@ class UserNamePass(UserData):
         return notarobot
 
 class RegistrationFormNoDisposableEmail(RegistrationFormUniqueEmail, UserNamePass):
+    # Same as the model-generated field (label, max_length), plus the 4-byte check.
+    email = NoFourByteEmailField(label=_("Email address"), max_length=254)
+
     def clean_email(self):
         """
         Check the supplied email address against a list of known disposable
@@ -132,7 +159,7 @@ class SocialAwarePasswordResetForm(PasswordResetForm):
 
 
 class NewLibraryForm(forms.ModelForm):
-    username = forms.RegexField(
+    username = NoFourByteRegexField(
         label=_("Library Username"),
         max_length=30,
         regex=r'^[\w.@+-]+$',
