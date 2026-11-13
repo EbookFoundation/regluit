@@ -2107,8 +2107,18 @@ def feedback(request, recipient='unglueit@ebookfoundation.org', template='feedba
                 return thanks
 
         else:
-            context['num1'] = request.POST['num1']
-            context['num2']  = request.POST['num2']
+            if all(request.POST.get(k) for k in ('num1', 'num2', 'answer')):
+                # Keep the puzzle the visitor saw.
+                context['num1'] = request.POST['num1']
+                context['num2'] = request.POST['num2']
+            else:
+                # The hidden puzzle fields are missing or blank (form-spam bots).
+                # Reading them used to raise MultiValueDictKeyError, a 500. Show
+                # the fresh puzzle instead, with hidden fields that match it.
+                data = request.POST.copy()
+                for k in ('num1', 'num2', 'answer'):
+                    data[k] = str(context[k])
+                form = FeedbackForm(data)
 
     else:
         if request.user.is_authenticated:

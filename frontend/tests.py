@@ -623,6 +623,34 @@ class FeedbackUrlSpaceTests(TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(self.page_field(r), "http://testserver/work/9/")
 
+    def test_post_without_the_captcha_fields_rerenders_the_form(self):
+        # Form-spam bots post without the hidden num1/num2 fields; that used to
+        # raise MultiValueDictKeyError (a 500 and an error email).
+        import re
+        for missing, blank in ((['num2'], []), (['num1'], []),
+                               (['num1', 'num2', 'answer'], []), ([], ['num2'])):
+            data = {
+                'sender': 'someone@example.org',
+                'subject': 'hi',
+                'message': 'hi',
+                'page': 'http://testserver/work/9/',
+                'num1': '1', 'num2': '2', 'answer': '3', 'notarobot': '3',
+            }
+            for field in missing:
+                del data[field]
+            for field in blank:
+                data[field] = ''
+            r = Client().post("/feedback/", data)
+            self.assertEqual(r.status_code, 200, (missing, blank))
+            html = r.content.decode()
+            # The puzzle shown and the hidden answer it is checked against agree.
+            shown = re.search(r"not a robot\. (\d+) \+ (\d+) =", html)
+            hidden = re.search(r'name="answer" value="(\d+)"|value="(\d+)" name="answer"', html)
+            self.assertIsNotNone(shown, (missing, blank))
+            self.assertIsNotNone(hidden, (missing, blank))
+            self.assertEqual(int(shown.group(1)) + int(shown.group(2)),
+                             int(hidden.group(1) or hidden.group(2)), (missing, blank))
+
     def test_form_collapses_newlines_in_the_subject(self):
         # A newline here would raise BadHeaderError inside the celery task,
         # long after the user has been shown a thank-you page.
